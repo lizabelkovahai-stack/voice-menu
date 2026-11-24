@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Голосовое меню — 10 дней</title>
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+  body {
+    font-family: system-ui, sans-serif;
+    margin: 0;
+    padding: 12px;
+    background: #111;
+    color: #fff;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    user-select: none;
+  }
+
+  .tap-zone {
+    position: fixed;
+    inset: 0;
+    z-index: 9999;
+    cursor: pointer;
+  }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+    max-width: 500px;
+    margin: 0 auto 14px;
+    pointer-events: none;
+  }
+
+  .tile {
+    background: #222;
+    border: 2px solid #333;
+    border-radius: 10px;
+    padding: 8px 6px;
+    text-align: center;
+    transition: all 0.2s;
+    min-height: 70px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+  }
+
+  .tile.active {
+    border-color: #007bff;
+    background: #1a3a5c;
+    transform: scale(1.04);
+    box-shadow: 0 0 14px rgba(0,123,255,0.6);
+  }
+
+  .tile-title { font-size: 13px; font-weight: bold; }
+  .tile-sub { font-size: 10px; color: #888; margin-top: 3px; }
+
+  .dish-card {
+    background: #1a1a1a;
+    border: 3px solid #007bff;
+    border-radius: 14px;
+    padding: 18px 14px;
+    max-width: 500px;
+    margin: 0 auto;
+    text-align: center;
+    pointer-events: none;
+  }
+
+  .dish-day { font-size: 12px; color: #888; }
+  .dish-section { font-size: 14px; color: #4dabf7; margin-top: 4px; }
+  .dish-name { font-size: 26px; font-weight: bold; margin-top: 4px; }
+  .dish-price { font-size: 20px; color: #4dabf7; margin-top: 6px; }
+  .dish-count { font-size: 12px; color: #666; margin-top: 6px; }
+
+  .status {
+    margin-top: 12px;
+    text-align: center;
+    color: #aaa;
+    font-size: 13px;
+    min-height: 18px;
+    pointer-events: none;
+  }
+</style>
+</head>
+<body>
+
+<div class="tap-zone" id="tapZone"></div>
+
+<div class="grid" id="grid"></div>
+
+<div class="dish-card">
+  <div class="dish-day" id="dishDay">День 1 из 10</div>
+  <div class="dish-section" id="dishSection">Завтрак</div>
+  <div class="dish-name" id="dishName">Омлет 1</div>
+  <div class="dish-price" id="dishPrice">250 руб.</div>
+  <div class="dish-count" id="dishCount">Блюдо 1 из 3</div>
+</div>
+
+<div class="status" id="status">1 тап — перечислить день. 2 тапа — выбрать день голосом.</div>
+
+<script>
+  // === 10 дней ===
+  const days = [];
+  for (let i = 1; i <= 10; i++) {
+    days.push({
+      title: `День ${i}`,
+      sections: [
+        { name: "Завтрак", items: [
+          { name: `Омлет ${i}`, price: 250 },
+          { name: `Каша ${i}`, price: 180 },
+          { name: `Сырники ${i}`, price: 220 }
+        ]},
+        { name: "Обед", items: [
+          { name: `Борщ ${i}`, price: 300 },
+          { name: `Котлета ${i}`, price: 350 },
+          { name: `Плов ${i}`, price: 320 }
+        ]},
+        { name: "Ужин", items: [
+          { name: `Стейк ${i}`, price: 700 },
+          { name: `Рыба ${i}`, price: 450 },
+          { name: `Салат ${i}`, price: 200 }
+        ]}
+      ]
+    });
+  }
+
+  let dayIndex = 0;
+  let sectionIndex = 0;
+  let itemIndex = 0;
+  const synth = window.speechSynthesis;
+
+  // === Озвучка с перебиванием ===
+  function speak(text, onEnd) {
+    if (!synth) return;
+    synth.cancel();
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = 'ru-RU';
+    u.rate = 1.0;
+    if (onEnd) u.onend = onEnd;
+    synth.speak(u);
+  }
+
+  // === Сетка дней ===
+  function buildGrid() {
+    const grid = document.getElementById('grid');
+    grid.innerHTML = '';
+    days.forEach((d, i) => {
+      const tile = document.createElement('div');
+      tile.className = 'tile' + (i === dayIndex ? ' active' : '');
+      tile.id = 'tile-' + i;
+      tile.innerHTML = `<div class="tile-title">${d.title}</div><div class="tile-sub">З / О / У</div>`;
+      grid.appendChild(tile);
+    });
+  }
+
+  // === Обновить экран ===
+  function updateDisplay(announce = true) {
+    document.querySelectorAll('.tile').forEach(t => t.classList.remove('active'));
+    const active = document.getElementById('tile-' + dayIndex);
+    if (active) active.classList.add('active');
+
+    const d = days[dayIndex];
+    const sec = d.sections[sectionIndex];
+    const item = sec.items[itemIndex];
+
+    document.getElementById('dishDay').textContent = `${d.title} из ${days.length}`;
+    document.getElementById('dishSection').textContent = sec.name;
+    document.getElementById('dishName').textContent = item.name;
+    document.getElementById('dishPrice').textContent = item.price + ' руб.';
+    document.getElementById('dishCount').textContent = `Блюдо ${itemIndex + 1} из ${sec.items.length}`;
+
+    if (announce) speak(`${d.title}. ${sec.name}. ${item.name}. ${item.price} рублей.`);
+  }
+
+  // === Перечислить весь текущий день ===
+  function readDay() {
+    const d = days[dayIndex];
+    let sec = 0, it = 0;
+    function next() {
+      if (sec >= d.sections.length) {
+        speak('Конец дня. Назовите блюдо, чтобы выбрать. Или тапните.');
+        return;
+      }
+      const s = d.sections[sec];
+      if (it >= s.items.length) { sec++; it = 0; next(); return; }
+      const item = s.items[it];
+      const u = new SpeechSynthesisUtterance(`${s.name}. ${item.name}. ${item.price} рублей.`);
+      u.lang = 'ru-RU';
+      u.onend = () => { it++; next(); };
+      synth.speak(u);
+    }
+    synth.cancel();
+    next();
+  }
+
+  // === Спросить, какой день выбрать ===
+  function askDay() {
+    speak('Какой день выбрать? Скажите номер от одного до десяти.', () => {
+      if (recognition) {
+        try { recognition.start(); } catch (e) {}
+      }
+    });
+  }
+
+  function selectDay(n) {
+    if (n >= 1 && n <= days.length) {
+      dayIndex = n - 1;
+      sectionIndex = 0;
+      itemIndex = 0;
+      updateDisplay(true);
+      return true;
+    }
+    return false;
+  }
+
+  // === Спросить следующее блюдо ===
+  function askNextDish() {
+    speak('Назовите следующее блюдо, которое хотите выбрать. Или скажите дальше, чтобы я перечислила.', () => {
+      if (recognition) {
+        try { recognition.start(); } catch (e) {}
+      }
+    });
+  }
+
+  // === Выбор блюда голосом ===
+  function selectDish(name) {
+    const t = name.toLowerCase();
+    for (let d = 0; d < days.length; d++) {
+      for (let sec = 0; sec < days[d].sections.length; sec++) {
+        const idx = days[d].sections[sec].items.findIndex(
+          item => t.includes(item.name.toLowerCase())
+        );
+        if (idx !== -1) {
+          dayIndex = d;
+          sectionIndex = sec;
+          itemIndex = idx;
+          const item = days[d].sections[sec].items[idx];
+          updateDisplay(false);
+          
+          // Подтверждение и вопрос "Назовите следующее"
+          speak(`Вы выбрали ${item.name}, ${item.price} рублей.`, () => {
+            askNextDish(); // вместо перечисления — спрашиваем!
+          });
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  // === Переход к следующей позиции ===
+  function nextItem() {
+    const d = days[dayIndex];
+    const sec = d.sections[sectionIndex];
+    if (itemIndex < sec.items.length - 1) {
+      itemIndex++;
+    } else if (sectionIndex < d.sections.length - 1) {
+      sectionIndex++;
+      itemIndex = 0;
+    } else {
+      dayIndex = (dayIndex + 1) % days.length;
+      sectionIndex = 0;
+      itemIndex = 0;
+    }
+    updateDisplay(true);
+  }
+
+  // === Голос ===
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  let recognition = null;
+
+  if (SR) {
+    recognition = new SR();
+    recognition.lang = 'ru-RU';
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+
+    recognition.onresult = (event) => {
+      const t = event.results[0][0].transcript.toLowerCase().trim();
+
+      // Команды
+      if (t.includes('помощь')) { speakHelp(); return; }
+      if (t.includes('дальше') || t.includes('следующ') || t.includes('перечисли')) { nextItem(); return; }
+      
+      // Выбор дня
+      const dayMatch = t.match(/(?:выбери\s+)?день\s*(\d+)/);
+      if (dayMatch) {
+        const n = parseInt(dayMatch[1]);
+        if (selectDay(n)) return;
+        speak(`Дня ${n} нет. Есть от одного до десяти.`);
+        return;
+      }
+
+      // Категория
+      if (t.includes('завтрак')) { sectionIndex = 0; itemIndex = 0; updateDisplay(true); return; }
+      if (t.includes('обед')) { sectionIndex = 1; itemIndex = 0; updateDisplay(true); return; }
+      if (t.includes('ужин')) { sectionIndex = 2; itemIndex = 0; updateDisplay(true); return; }
+
+      // Выбор блюда
+      if (selectDish(t)) return;
+
+      speak('Не нашла. Скажите день и номер. Или название блюда. Или помощь.');
+    };
+
+    recognition.onerror = () => {
+      document.getElementById('status').textContent = 'Ошибка микрофона. Тапните по экрану.';
+    };
+  }
+
+  function speakHelp() {
+    speak('Скажите: выбери день и номер. Или название блюда. Или дальше, назад, помощь.');
+  }
+
+  // === Логика тапов: 1 тап — перечислить день, 2 тапа — выбрать день ===
+  let tapCount = 0;
+  let tapTimer = null;
+
+  document.getElementById('tapZone').addEventListener('click', () => {
+    tapCount++;
+    if (tapTimer) clearTimeout(tapTimer);
+
+    tapTimer = setTimeout(() => {
+      if (tapCount === 1) {
+        readDay();
+      } else if (tapCount >= 2) {
+        askDay();
+      }
+      tapCount = 0;
+    }, 400); // ждём 400 мс, чтобы понять, был ли второй тап
+  });
+
+  // === Клавиатура ===
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowRight') nextItem();
+    if (e.key === 'ArrowLeft') prevItem();
+  });
+
+  function prevItem() {
+    if (itemIndex > 0) {
+      itemIndex--;
+    } else if (sectionIndex > 0) {
+      sectionIndex--;
+      itemIndex = days[dayIndex].sections[sectionIndex].items.length - 1;
+    } else {
+      dayIndex = (dayIndex - 1 + days.length) % days.length;
+      sectionIndex = days[dayIndex].sections.length - 1;
+      itemIndex = days[dayIndex].sections[sectionIndex].items.length - 1;
+    }
+    updateDisplay(true);
+  }
+
+  // === Старт ===
+  buildGrid();
+  updateDisplay(true);
+</script>
+</body>
+</html>
